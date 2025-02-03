@@ -1,96 +1,175 @@
 # GNN Music Recommendation System
 
-This project uses a Graph Neural Network (GNN) to build a recommendation system for music playlists and tracks based on audio features and playlist-track interactions. It uses a bipartite graph where one set of nodes represents playlists and the other represents tracks. Track audio features are used as node attributes and a simple two-layer GNN (with GCNConv layers from PyTorch Geometric) learns meaningful embeddings for recommendation.
+This project uses a Graph Neural Network (GNN) to build a recommendation system for music playlists and tracks based on audio features and playlist–track interactions. A bipartite graph is constructed where one set of nodes represents playlists and the other represents tracks. Track audio features serve as node attributes, while playlists are initialized with random embeddings. A simple two-layer GCN (using `GCNConv` from PyTorch Geometric) is trained to learn meaningful node embeddings that are then used to recommend similar songs.
+
+## Table of Contents
+
+- [Project Structure](#project-structure)
+- [Detailed Code Explanation](#detailed-code-explanation)
+  - [1. Data Loading and Graph Construction](#1-data-loading-and-graph-construction)
+  - [2. Defining the GNN Model](#2-defining-the-gnn-model)
+  - [3. Training the GNN](#3-training-the-gnn)
+  - [4. Interactive Recommendation](#4-interactive-recommendation)
+- [Dependencies](#dependencies)
+- [Getting Started](#getting-started)
+- [Running the Project](#running-the-project)
+- [Additional Information](#additional-information)
+- [License](#license)
+- [Contributing](#contributing)
+
+---
 
 ## Project Structure
 
-- **`app.py`**  
-  Contains the main implementation for:
-  - Loading the CSV data ([`spotify_songs.csv`](spotify_songs.csv))
-  - Building unique node sets and the bipartite graph
-  - Creating node features (tracks use audio features while playlists are initialized with zeros or random embeddings)
-  - Defining and training the GNN model
-  - Performing interactive recommendation
+```
+GNN-Music-Recommendation-System/
+├── app.py                   # Main script: loads data, builds the graph, trains the GNN, and runs recommendations.
+├── notebook.ipynb           # Jupyter Notebook with an interactive walk-through of the data preparation, model training, and inference.
+├── other/
+│   ├── h1.ipynb             # Additional interactive examples and demos.
+│   └── h1.md                # Detailed documentation including negative sampling and evaluation.
+├── spotify_songs.csv        # CSV file with song and playlist metadata.
+├── .gitignore               # Git ignore rules.
+└── README.md                # This file.
+```
 
-- **`notebook.ipynb`**  
-  Provides an interactive walk-through of:
-  - Data preparation
-  - Model definition and training
-  - Running inference and interactive song recommendations
+---
 
-- **`other/h1.ipynb` & `other/h1.md`**  
-  These files offer additional examples and documentation, including:
-  - Detailed steps on negative sampling loss and evaluation
-  - Additional demos for constructing the graph, training the model, and performing inference
+## Detailed Code Explanation
 
-- **`spotify_songs.csv`**  
-  A CSV file with song and playlist metadata used to build the graph. Each row corresponds to a track occurrence in a playlist.
+### 1. Data Loading and Graph Construction
 
-- **`.gitignore`**  
-  Specifies files and directories to ignore in version control.
+**CSV Loading and Data Preparation:**  
+- The code uses **Pandas** to read `spotify_songs.csv`, which contains essential columns such as `playlist_id`, `track_id`, `track_name`, and audio features like `danceability`, `energy`, `loudness`, etc.
+- **Unique Node Sets:**  
+  - **Playlists:** Each unique `playlist_id` is assigned an index (0 to `num_playlists - 1`).
+  - **Tracks:** Each unique `track_id` is assigned an index starting from `num_playlists` so that playlist and track nodes do not overlap.
+- **Mapping IDs to Indices:**  
+  Two dictionaries, `playlist_id_to_index` and `track_id_to_index`, are created to map original IDs to their respective node indices.
+- **Edge Construction:**  
+  - For every occurrence of a track in a playlist, an edge is added from the playlist node to the track node.
+  - To represent an undirected graph, edges are added in both directions (playlist → track and track → playlist).
+- **Node Features:**  
+  - **Track Nodes:** Audio features (e.g., `danceability`, `energy`, `tempo`, etc.) are extracted for each track. The code also handles cases where feature conversion might fail by using zeros.
+  - **Playlist Nodes:** Since there are no inherent features, these nodes are initialized with random embeddings.
+  - **Normalization:**  
+    Track features are optionally normalized using min–max scaling to bring all feature values into a similar range.
+- **Data Object:**  
+  The features of both playlists and tracks are concatenated to form the overall feature matrix `x`. A PyTorch Geometric `Data` object is then created using this matrix and the computed edge indices.
+
+### 2. Defining the GNN Model
+
+**Model Architecture (`GNNRec` Class):**  
+- **Layer 1:**  
+  A `GCNConv` layer that transforms the input node features to a hidden representation.
+- **Activation and Dropout:**  
+  A ReLU activation function introduces non-linearity followed by a dropout layer to prevent overfitting during training.
+- **Layer 2:**  
+  A second `GCNConv` layer that outputs the final embeddings for each node.
+- **Hyperparameters:**  
+  - `in_channels` corresponds to the number of features (audio features for tracks).
+  - `hidden_channels` (e.g., 128) and `out_channels` (e.g., 64) can be adjusted as needed.
+
+### 3. Training the GNN
+
+**Training Process Overview:**
+
+- **Positive Sampling:**  
+  - Uses actual playlist–track pairs from the CSV.
+  - The dot product between corresponding playlist and track embeddings is computed. This score is passed through a sigmoid function and then used in a log-sigmoid loss, encouraging the model to produce higher scores for real interactions.
+- **Negative Sampling:**  
+  - Random pairs of playlist and track nodes that are not connected are sampled.
+  - The same dot product operation is applied and the loss is designed (using `-log(1 - sigmoid(score))`) to push these negative pairs' scores lower.
+- **Loss and Optimization:**  
+  The overall loss is the sum of positive and negative losses. The Adam optimizer is then used to update the model weights over multiple epochs (e.g., 100 epochs), with periodic logging to monitor the training progress.
+
+### 4. Interactive Recommendation
+
+**Post-training Embedding Extraction:**
+
+- **Final Embeddings:**  
+  Once training is complete, final node embeddings are computed. The embeddings are then separated into:
+  - **Playlist Embeddings:** First part of the overall embeddings.
+  - **Track Embeddings:** The remaining embeddings.
+  
+**Interactive Song Recommendation:**  
+- **Query Processing:**  
+  A helper function (`get_track_node_index_by_name`) looks up the song by its name (using a case-insensitive exact match) and retrieves its corresponding node index.
+- **Similarity Calculation:**  
+  - The embedding of the query song is compared against all track embeddings using cosine similarity.
+  - Both query and track embeddings are normalized (unit vectors) to compute cosine similarity reliably.
+- **Excluding the Query:**  
+  The system ensures that the queried song is not included in the recommendations.
+- **Output:**  
+  The top 10 songs with the highest similarity scores are then returned as recommendations, displaying their names based on metadata.
+
+---
 
 ## Dependencies
 
 The project uses the following Python libraries:
-- [Pandas](https://pandas.pydata.org/) for CSV file manipulation.
+- [Pandas](https://pandas.pydata.org/) for CSV file handling.
 - [NumPy](https://numpy.org/) for numerical operations.
 - [PyTorch](https://pytorch.org/) for tensor computation and model training.
-- [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/) for graph neural network layers and data handling.
+- [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/) for graph neural network layers and data management.
 
-Install the required packages (preferably in a virtual environment):
+To install the required packages (preferably in a virtual environment):
 
-```sh
+```bash
 pip install pandas numpy torch torch-geometric
 ```
 
-_Note: Additional dependencies (e.g., networkx, or specific versions of torch packages) may be required as indicated during installation._
+> **Note:** Additional dependencies (e.g., `networkx` or specific versions of torch-related packages) might be required. Check the [PyTorch Geometric installation guide](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html) for further details.
+
+---
 
 ## Getting Started
 
-1. **Prepare your CSV:**  
-   Update the CSV path in `app.py` if necessary. The CSV file should contain columns such as `playlist_id`, `track_id`, `danceability`, `energy`, `loudness`, etc.
+1. **Prepare Your CSV:**  
+   Ensure that your CSV file (e.g., `spotify_songs.csv`) is in the root directory (or update the file path in `app.py`). The CSV should include columns like `playlist_id`, `track_id`, `track_name`, and audio feature columns (`danceability`, `energy`, `loudness`, etc.).
 
 2. **Graph Construction:**  
-   The project constructs a bipartite graph where playlists and tracks form the nodes (see the graph building section in `app.py`).  
-   - Playlist nodes are assigned indices `0` to `num_playlists - 1`.
-   - Track nodes are assigned indices `num_playlists` to `total_nodes - 1`.
-   - Undirected edges are built by adding both directions (playlist → track and track → playlist).
+   The code builds a bipartite graph:
+   - **Playlist Nodes:** Indices `0` to `num_playlists - 1`
+   - **Track Nodes:** Indices `num_playlists` to `total_nodes - 1`
+   - Undirected edges are created by adding both directions between playlists and tracks.
 
 3. **Node Features:**  
-   Track nodes are assigned audio features (e.g., `danceability`, `energy`, `loudness`, etc.) while playlists are initialized with zeros or random values.
+   - Track nodes use audio features.
+   - Playlist nodes are initialized with random values.
 
 4. **Model Training:**  
-   A simple two-layer GCN (based on `GCNConv`) is defined and trained using positive and negative sampling loss.
-   - See `notebook.ipynb` for an interactive approach and training output logs.
-   - Training logs indicate epoch progress and loss values.
+   The two-layer GCN is trained using a combination of positive and negative sampling loss. Training progress is logged (e.g., every 10 epochs).
 
 5. **Interactive Recommendation:**  
-   After training, the model computes final embeddings, and you can perform recommendations by:
-   - Mapping the global track node indices back to track IDs.
-   - Retrieving track names using the metadata (e.g., via `track_df` in `notebook.ipynb` or `other/h1.ipynb`).
-   - Running an interactive loop to enter a song name and receive top-10 recommendation results.
+   After training, the system enters an interactive loop where you can input a song name to receive 10 recommended similar songs.
+
+---
 
 ## Running the Project
 
 ### Using the Command Line (Script)
 Run the main application with:
-```sh
+```bash
 python app.py
 ```
-Training progress and interactive prompts will appear on the console.
+This command will:
+- Load the CSV data.
+- Build the graph.
+- Train the GNN model.
+- Launch an interactive recommendation prompt.
 
 ### Using Jupyter Notebook
-Open `notebook.ipynb` in Jupyter Notebook or VS Code’s interactive window to step through the code cells for data preparation, model training, and inference.
+Alternatively, open `notebook.ipynb` (or `other/h1.ipynb`) in Jupyter Notebook or VS Code’s interactive window to walk through the steps of data preparation, model training, and inference interactively.
+
+---
 
 ## Additional Information
 
 - **Data Preparation & Graph Construction:**  
-  See `h1.md` for a detailed explanation on building the graph and creating node features.
-
+  Refer to the detailed explanation in the notebooks (`notebook.ipynb`, `other/h1.ipynb`) and the accompanying documentation (`other/h1.md`).
 - **Model Architecture:**  
-  The model is defined in `app.py` and `h1.ipynb` under the `GNNRec` class. Adjust hyperparameters (e.g., learning rate, number of epochs) as needed.
-
+  The GNN model (`GNNRec` class) is defined in `app.py` and also explained in the notebooks. Adjust hyperparameters (e.g., learning rate, epochs) as necessary.
 - **Interactive Recommendation:**  
-  Both the scripts and notebooks include sections for interactive song recommendations. Modify the mapping and similarity components based on your evaluation needs.
+  The interactive loop in `app.py` demonstrates how to query by song name and obtain recommendations based on cosine similarity between learned embeddings.
 
-Feel free to explore and adjust the code to fit your dataset and requirements. If you have any questions or need further adjustments, check the inline documentation in the corresponding files.
