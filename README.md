@@ -1,4 +1,4 @@
-# GNN Music Recommendation System
+# GNN Music Recommendation System    
 
 This project uses a Graph Neural Network (GNN) to build a recommendation system for music playlists and tracks based on audio features and playlist–track interactions. A bipartite graph is constructed where one set of nodes represents playlists and the other represents tracks. Track audio features serve as node attributes, while playlists are initialized with random embeddings. A simple two-layer GCN (using `GCNConv` from PyTorch Geometric) is trained to learn meaningful node embeddings that are then used to recommend similar songs.
 
